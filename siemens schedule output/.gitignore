@@ -1,0 +1,9 @@
+#Directories
+__pycache__/
+
+#Data Files
+*.pk1
+*.pdf
+*.xlsx
+*.docx
+*.csv
