@@ -59,7 +59,9 @@ import datetime as dt
 import requests
 
 
-### Global Constants
+# =============================================================================
+# --- Global Constants
+# =============================================================================
 timeFmt = "%H:%M"
 dateFmt = "%Y-%m-%d"
 reportPath = "report output"
@@ -67,7 +69,7 @@ dataSrc = 'siemens schedule input'
 
 
 # =============================================================================
-### Functions
+# --- Functions
 # =============================================================================
 
 
@@ -157,7 +159,7 @@ def parse_kalidah(html):
 
             counter = 0  # counter allows the columns to follow the same name
             uniqueId += 1  # makes sure no collisions happen when df is made
-            sectionDict = {'Date': date} #start each section with the date
+            sectionDict = {'Date': date}  # start each section with the date
 
             # Parse through the section (~6 elements, and add to {section})
             for item in section:
@@ -181,8 +183,8 @@ def parse_kalidah(html):
     df.set_index('Date', inplace=True)
     df.index = pd.to_datetime(df.index)
 
-    df['New Start'] = pd.to_datetime(df['New Start']).dt.strftime(timeFmt)
-    df['New End'] = pd.to_datetime(df['New End']).dt.strftime(timeFmt)
+    df['New Start'] = pd.to_datetime(df['New Start'])
+    df['New End'] = pd.to_datetime(df['New End'])
 
     return df
 
@@ -226,7 +228,11 @@ def parse_siemens_schedule(fileName):
     for i, line in enumerate(lines):
 
         # Remove tabs and newline charachters
-        lines[i] = line.strip('\n').replace('"', "").replace('<<', '00:00').replace('>>', '23:59')
+        lines[i] = (
+            line.strip('\n')
+            .replace('"', "")
+            .replace('<<', '00:00')
+            .replace('>>', '23:59'))
 
     # Ignore the heading section, hard coded later
     splitLines = []
@@ -284,8 +290,19 @@ def parse_siemens_schedule(fileName):
     df.set_index('Date', inplace=True)
     df.index = pd.to_datetime(df.index)
     # Format time numbers properly (warning: converts to strings)
-    df['Current Start'] = pd.to_datetime(df['Current Start'].str.strip(' ')).dt.strftime(timeFmt)
-    df['Current End'] = pd.to_datetime(df['Current End'].str.strip(' ')).dt.strftime(timeFmt)
+    df['Current Start'] = pd.to_datetime(
+            df['Current Start'].str.strip(' ')).dt.strftime(timeFmt)
+    df['Current End'] = pd.to_datetime(
+            df['Current End'].str.strip(' ')).dt.strftime(timeFmt)
+
+    return df
+
+
+def adjust_Kalidah_start(kalidah, deltaT='-1h'):
+
+    df = kalidah.copy()
+
+    df.loc[df['New Start'].dt.hour > 0, 'New Start'] += pd.Timedelta(deltaT)
 
     return df
 
@@ -299,7 +316,15 @@ def merge_kalidah_inventory(kalidah, inventory):
     merged = kalidah.reset_index().merge(inventory, how="outer",
                                          on='Facility').set_index('Date')
 
-    return merged
+    # Check for facilities that are missing in AHU_inventory
+    missing = merged[(merged['Siemens Schedule'].isnull())
+                     & ~(merged['Facility'].isnull())]
+
+    if not missing.empty:
+        print("There is a missing Facility in AHU inventory!!")
+        print(missing)
+
+    return merged, missing
 
 
 def multi_merge(left, right, keys):
@@ -312,11 +337,13 @@ def multi_merge(left, right, keys):
     https://github.com/pandas-dev/pandas/issues/3662
     """
 
-    result = pd.merge(left.reset_index(),
-                      right.reset_index(),
-                      on=keys,
-                      how='outer').set_index(keys)
+    # Return multi Index on dates
+#    result = pd.merge(left.reset_index(),
+#                      right.reset_index(),
+#                      on=keys,
+#                      how='outer').set_index(keys)
 
+    # DO NOT Return multi Index on dates
     result = pd.merge(left.reset_index(),
                       right.reset_index(),
                       on=keys,
@@ -338,7 +365,8 @@ def reduce_report(df):
              'New End': max,
              'Current Start': min,
              'Current End': max,
-             'Name of Reservation': lambda x: ', '.join(x)
+             'Name of Reservation': lambda x: ', '.join(x),
+             'Facility': lambda y: ', '.join(y)
              }
 
     else:
@@ -379,7 +407,7 @@ def extend_only_logic(df):
     return df
 
 
-def save_function(df, kalidah):
+def save_function(df, kalidah, missing):
     """
     Package the final df output into a nice excel file
     """
@@ -396,7 +424,7 @@ def save_function(df, kalidah):
     format1 = workbook.add_format({"bg_color": "#e36bff"})
 
     # Filter page 1 to only times that need changing
-    filtered = df[(df['Change Start'] == True) | (df['Change End'] == True)]
+    filtered = df[(df['Change Start']) | (df['Change End'])]  # removed ==True
 
     if filtered.empty:
         print("Warning: filtered dataframe is empty! No changes needed!")
@@ -409,7 +437,7 @@ def save_function(df, kalidah):
 
     worksheet.conditional_format("D2:E1000",
                                  {"type": "formula",
-                                  "criteria": '=(I2=TRUE)',
+                                  "criteria": '=(J2=TRUE)',
                                   "format": format1
                                   }
                                  )
@@ -448,6 +476,13 @@ def save_function(df, kalidah):
     worksheet3.set_column(2, 5, 11)  # set remaining column widths
     worksheet3.set_column(6, 6, 28)  # set Name of reservation
 
+    missing.to_excel(writer, 'missing')
+    worksheet3 = writer.sheets["missing"]  # pull worksheet object
+#    worksheet3.set_column(0, 0, 15)  # set date column width
+#    worksheet3.set_column(1, 1, 28)  # set Facility width
+#    worksheet3.set_column(2, 5, 11)  # set remaining column widths
+#    worksheet3.set_column(6, 6, 28)  # set Name of reservation
+
     # Clean up
     writer.save()
     print('Saving Assistant report as {}'.format(outputFilename))
@@ -461,78 +496,11 @@ def move_siemens_report(reportPath):
     os.rename(reportPath, newPath)
 
 # =============================================================================
-### TEST FUNCTIONS
+# --- TEST FUNCTIONS
 # =============================================================================
 
-
 # =============================================================================
-### RETIRED FUNCTIONS
-# =============================================================================
-
-def ensure_date(dateString):
-
-    splitString = dateString.split('-')
-
-    try:
-        assert(len(splitString)) == 3
-        assert(len(splitString[0])) == 4
-        assert(len(splitString[1])) == 2
-        assert(len(splitString[2])) == 2
-
-        int(splitString[0])
-        int(splitString[0])
-        int(splitString[0])
-
-    except AssertionError:
-        print('Date format failure in ensure_date')
-        return False
-
-    try:
-        assert(0 < int(splitString[1]) < 13)
-        assert(0 < int(splitString[2]) < 32)
-    except AssertionError:
-        print('Date values out of range in ensure_date.'
-              '0 < MM < 13 ; 0 < DD < 32')
-    else:
-        return True
-
-
-def aggregate_reservations(kalidah):
-    """
-    Once kalidah is parsed, collect all of the reservations for a particular
-    date and facility, then save them to append to the main output
-    """
-
-    reservations = kalidah.groupby(by=('Date','Facility')).apply(lambda x: x["Name of Reservation"])
-    return reservations
-
-
-def auto_load_data():
-    """
-    Pull data in the 'standard' way from the "data" directory
-    Return kalidah, inventory and siemens documents to be processed in "main()"
-    """
-    """
-    kalidahFile = find_files(extension='.xls', filePath=path.join(os.getcwd(),'data'))
-    if len(kalidahFile) > 1:
-        raise ValueError("There should only be one kalidah report in 'data' folder")
-
-    siemensFile = find_files(extension='.csv', filePath=path.join(os.getcwd(),'data'))
-    if len(siemensFile) > 1:
-        raise ValueError("There should onl be one Siemens Report in 'data' folder")
-
-    """
-    print(kalidahFile, siemensFile)
-
-    kalidah = parse_kalidah(path.join(path_prefix, 'data', kalidahFile[0]))
-    inventory = pd.read_excel('AHU inventory.xlsx')
-    inventory = inventory.drop('Building',axis=1)
-    siemens = parse_siemens_schedule(path.join(path_prefix, 'data', siemensFile[0]))
-
-    return kalidah, inventory, siemens
-
-# =============================================================================
-### MAIN
+# --- MAIN
 # =============================================================================
 
 
@@ -540,35 +508,49 @@ def generate_report(moveSiemens=False):
     # Grab siemens report
     siemensPath = grab_siemens_report()
     siemens = parse_siemens_schedule(siemensPath)
+
+#    return siemens
+
     # find dates
     startDate = siemens.index[0].strftime(dateFmt)
     endDate = siemens.index[-1].strftime(dateFmt)
+
     # pull kalidah report with dates
     print("\nWorking...\n")
     html = get_web_report(startDate=startDate,
                           endDate=endDate)
+
     # parse Kalidah
     kalidah = parse_kalidah(html)
+    kalidah = adjust_Kalidah_start(kalidah)
+
+    kalidah['New Start'] = kalidah['New Start'].dt.strftime(timeFmt)
+    kalidah['New End'] = kalidah['New End'].dt.strftime(timeFmt)
+
+#    return kalidah
+
+#    siemens['Current Start'] = siemens['Current Start'].dt.strftime(timeFmt)
+#    siemens['Current End'] = siemens['Current End'].dt.strftime(timeFmt)
 
     # load inventory
     inventory = pd.read_excel('AHU inventory.xlsx')
     inventory = inventory.drop('Building', axis=1)
+
     # Compare reports
-    df = merge_kalidah_inventory(kalidah, inventory)
+    df, missing = merge_kalidah_inventory(kalidah, inventory)
     df = multi_merge(df, siemens, ['Date', 'Siemens Schedule'])
     df = reduce_report(df)
     df = extend_only_logic(df)
 
-    save_function(df, kalidah)
+    # Make excel - Save
+    save_function(df, kalidah, missing)
 
     if moveSiemens:
         move_siemens_report(siemensPath)
-    # Make excel
-    # save
+
     return kalidah
 
 
 if __name__ == "__main__":
-
     A = generate_report(moveSiemens=False)
     pass
