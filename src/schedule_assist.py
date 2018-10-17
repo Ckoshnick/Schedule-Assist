@@ -44,11 +44,12 @@ Additions
 - removed main() functions and replaced it with generate_report() to be more
 -- descriptive
 
-known issues:
-    - none
+V 1.2 (updated 08/16/2018)
+-------------------------
+Additions
+- Moved code to GitHub -- Check there for changes
+https://github.com/Ckoshnick/Schedule-Assist
 
-Todo:
-    - none
 """
 
 
@@ -239,7 +240,7 @@ def parse_siemens_schedule(fileName):
     for line in lines:
         splitLines.append(line.split(','))
 
-    dateList = ['Monday', 'Tuesday', 'Wednesday', 'Thurdsday',
+    dateList = ['Monday', 'Tuesday', 'Wednesday', 'Thursday',
                 'Friday', 'Saturday', 'Sunday']
 
     dateIndex = []
@@ -247,7 +248,8 @@ def parse_siemens_schedule(fileName):
 
     for i, line in enumerate(splitLines):
         if line[0] in dateList:
-            newDate = ''.join(line).replace(':', '')
+            newDate = ''.join(line[0:3]).replace(':', '')
+            print(newDate)
 
             dateIndex.append(i)
             dates.append(newDate)
@@ -422,13 +424,25 @@ def save_function(df, kalidah, missing):
     writer = pd.ExcelWriter(outputFilename,  datetime_format='yyyy-MM-dd')
     workbook = writer.book
     format1 = workbook.add_format({"bg_color": "#e36bff"})
+    format2 = workbook.add_format({"bg_color": "#86ff6b"})
 
     # Filter page 1 to only times that need changing
-    filtered = df[(df['Change Start']) | (df['Change End'])]  # removed ==True
+
+    searchFor = ['Can not schedule', 'This space is 24/7', ',']
+
+    noScheduleMask = (
+            (~df['New Start'].isna())
+            & (df['Current Start'].isna())
+            & ~df.index.get_level_values('Siemens Schedule').str.contains(
+                    '|'.join(searchFor))
+            )
+
+    filtered = df[(df['Change Start']) | (df['Change End'] | noScheduleMask)]
 
     if filtered.empty:
         print("Warning: filtered dataframe is empty! No changes needed!")
         filtered.loc['empty', df.columns] = 0
+
     filtered.to_excel(writer, 'changes')
 
     # Grab worksheet to make formatting changes
@@ -442,6 +456,12 @@ def save_function(df, kalidah, missing):
                                   }
                                  )
 
+    worksheet.conditional_format("D2:E1000",
+                                 {"type": "formula",
+                                  "criteria": '=AND(NOT(ISBLANK(D2)), ISBLANK(F2))',
+                                  "format": format2
+                                  }
+                                 )
 #    worksheet.conditional_format("E2:E1000",
 #                             {"type": "formula",
 #                              "criteria": '=($J2=TRUE)',
