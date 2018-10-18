@@ -329,6 +329,50 @@ def merge_kalidah_inventory(kalidah, inventory):
     return merged, missing
 
 
+def explode_str(df, col):
+
+    for index, row in df.iterrows():
+
+        print(index, row)
+        if row[col].find(',') > 0:
+
+            for item in row[col].split(','):
+
+                newRow = row
+                newRow[col] = item
+
+                df = df.append(newRow)
+
+    return df
+
+def expand_kalidah_groups(merged, col, splitString=','):
+    """ Takes in a mergred inventory kalidah df and expands any items that
+    has multiple siemens schedules listed. The different schedules must be
+    comma delimited """
+
+    merged = merged.loc[pd.notnull(merged.index)]
+
+    for index, row in merged.iterrows():
+
+        if isinstance(row[col], str):
+            pass
+        else:
+            continue
+
+        if row[col].find(splitString) > 0:
+
+            for item in row[col].split(splitString):
+
+                newRow = row
+                newRow[col] = item.strip()
+
+                merged = merged.append(newRow)
+
+    merged = merged[merged['Siemens Schedule'].str.contains(",") == False]
+
+    return merged
+
+
 def multi_merge(left, right, keys):
 
     """
@@ -554,10 +598,12 @@ def generate_report(moveSiemens=False):
 
     # load inventory
     inventory = pd.read_excel('AHU inventory.xlsx')
-    inventory = inventory.drop('Building', axis=1)
+    inventory = inventory.drop(['Building', 'Can Schedule',
+                                'Single Unit', '24/7 space', 'Notes'], axis=1)
 
     # Compare reports
     df, missing = merge_kalidah_inventory(kalidah, inventory)
+    df = expand_kalidah_groups(df, 'Siemens Schedule')
     df = multi_merge(df, siemens, ['Date', 'Siemens Schedule'])
     df = reduce_report(df)
     df = extend_only_logic(df)
