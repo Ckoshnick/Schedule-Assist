@@ -52,22 +52,20 @@ https://github.com/Ckoshnick/Schedule-Assist
 
 """
 
-
 import os
 from os import path
 import pandas as pd
 import datetime as dt
 import requests
 
-
 # =============================================================================
 # --- Global Constants
 # =============================================================================
+
 timeFmt = "%H:%M"
 dateFmt = "%Y-%m-%d"
 reportPath = "report output"
 dataSrc = 'siemens schedule input'
-
 
 # =============================================================================
 # --- Functions
@@ -77,6 +75,8 @@ dataSrc = 'siemens schedule input'
 def get_web_report(startDate='2018-04-28',
                    endDate='2018-04-29',
                    fileType='Excel'):
+
+    """ Request the Kalidah AC report from the Campus Event webpage """
 
     splitStart = startDate.split('-')
     splitEnd = endDate.split('-')
@@ -191,12 +191,9 @@ def parse_kalidah(html):
 
 
 def grab_siemens_report():
-    # Look in siemens folder
-    # Grab first file you see
-    # print name
-    # parse file
-    # Move file to used folder
-    # Return dataframe
+    """ Open the siemens schedule report input folder and find the first
+    file's path
+    """
 
     files = os.listdir(path.join("..", dataSrc))
     files = [x for x in files if x.find('.csv') >= 0]
@@ -216,6 +213,8 @@ def grab_siemens_report():
 
 
 def parse_siemens_schedule(fileName):
+    """ Open the siemens schedule report and parse the data into a pd.DataFrame
+    """
 
     with open(fileName, 'r') as f:
         lines = f.readlines()
@@ -301,6 +300,9 @@ def parse_siemens_schedule(fileName):
 
 
 def adjust_Kalidah_start(kalidah, deltaT='-1h'):
+    """ Pulls the start of the kalidah events back by deltaT, this makes it so
+    the user does not have to subtract time in their head to allow for warmup
+    """
 
     df = kalidah.copy()
 
@@ -328,22 +330,6 @@ def merge_kalidah_inventory(kalidah, inventory):
 
     return merged, missing
 
-
-def explode_str(df, col):
-
-    for index, row in df.iterrows():
-
-        print(index, row)
-        if row[col].find(',') > 0:
-
-            for item in row[col].split(','):
-
-                newRow = row
-                newRow[col] = item
-
-                df = df.append(newRow)
-
-    return df
 
 def expand_kalidah_groups(merged, col, splitString=','):
     """ Takes in a mergred inventory kalidah df and expands any items that
@@ -394,6 +380,8 @@ def multi_merge(left, right, keys):
                       right.reset_index(),
                       on=keys,
                       how='outer')
+
+
 
     return result
 
@@ -453,6 +441,34 @@ def extend_only_logic(df):
     return df
 
 
+def color_changer(date):
+
+    month = date.month
+
+    # Change color :: New Color
+    win = ('#B2E3E8', "#0077ff")
+    spr = ('#B2E3E8', '#DBE6AF')
+    summ = ('#E87F60', '#C2C290')
+    fall = ('#FADDAF', '#EB712F')
+
+    colorDict = {
+                 1: win, # win
+                 2: win, # win
+                 3: spr, # Spr,
+                 4: spr, # Spr,
+                 5: spr, # Spr,
+                 6: summ, # Sum
+                 7: summ, # Sum
+                 8: summ, # Sum
+                 9: fall, # Fall
+                 10: fall, # Fall
+                 11: fall, # Fall
+                 12: win, # win
+                 }
+
+    return colorDict[month]
+
+
 def save_function(df, kalidah, missing):
     """
     Package the final df output into a nice excel file
@@ -467,8 +483,11 @@ def save_function(df, kalidah, missing):
     # Initate write to save df
     writer = pd.ExcelWriter(outputFilename,  datetime_format='yyyy-MM-dd')
     workbook = writer.book
-    format1 = workbook.add_format({"bg_color": "#e36bff"})
-    format2 = workbook.add_format({"bg_color": "#86ff6b"})
+
+    color1, color2 = color_changer(dt.datetime.now())
+
+    format1 = workbook.add_format({"bg_color": color1})
+    format2 = workbook.add_format({"bg_color": color2})
 
     # Filter page 1 to only times that need changing
 
@@ -486,6 +505,9 @@ def save_function(df, kalidah, missing):
     if filtered.empty:
         print("Warning: filtered dataframe is empty! No changes needed!")
         filtered.loc['empty', df.columns] = 0
+
+    # Sort Date - Siemens Schedule
+    filtered = filtered.sort_index(level=[0, 2], sort_remaining=False)
 
     filtered.to_excel(writer, 'changes')
 
@@ -609,7 +631,9 @@ def generate_report(moveSiemens=False):
     df = extend_only_logic(df)
 
     # Make excel - Save
-    save_function(df, kalidah, missing)
+    df = save_function(df, kalidah, missing)
+
+#    return df
 
     if moveSiemens:
         move_siemens_report(siemensPath)
@@ -618,5 +642,5 @@ def generate_report(moveSiemens=False):
 
 
 if __name__ == "__main__":
-    A = generate_report(moveSiemens=False)
+    A = generate_report(moveSiemens=True)
     pass
