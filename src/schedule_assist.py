@@ -381,8 +381,6 @@ def multi_merge(left, right, keys):
                       on=keys,
                       how='outer')
 
-
-
     return result
 
 
@@ -412,7 +410,7 @@ def reduce_report(df):
              'Name of Reservation': lambda x: ', '.join(x)
              }
 
-    df = df.groupby(by=('Date', 'Building', 'Siemens Schedule')).agg(f)
+    df = df.groupby(by=['Date', 'Building', 'Siemens Schedule']).agg(f)
 
     return df
 
@@ -451,20 +449,11 @@ def color_changer(date):
     summ = ('#E87F60', '#C2C290')
     fall = ('#FADDAF', '#EB712F')
 
-    colorDict = {
-                 1: win, # win
-                 2: win, # win
-                 3: spr, # Spr,
-                 4: spr, # Spr,
-                 5: spr, # Spr,
-                 6: summ, # Sum
-                 7: summ, # Sum
-                 8: summ, # Sum
-                 9: fall, # Fall
-                 10: fall, # Fall
-                 11: fall, # Fall
-                 12: win, # win
-                 }
+    colorDict = {1: win, 2: win,
+                 3: spr, 4: spr, 5: spr,
+                 6: summ, 7: summ, 8: summ,
+                 9: fall, 10: fall, 11: fall,
+                 12: win}
 
     return colorDict[month]
 
