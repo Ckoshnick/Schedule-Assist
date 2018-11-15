@@ -287,15 +287,39 @@ def parse_siemens_schedule(fileName):
                'enabled', 'Current Start', 'Current End']
     df = pd.DataFrame(bigDict).T
     df.columns = columns
-    df = df[['Date', 'Siemens Schedule', 'Current Start', 'Current End']]
+    df = df[['Date', 'Siemens Schedule', 'enabled',
+             'Current Start', 'Current End']]
     df.set_index('Date', inplace=True)
     df.index = pd.to_datetime(df.index)
     # Format time numbers properly (warning: converts to strings)
-    df['Current Start'] = pd.to_datetime(
-            df['Current Start'].str.strip(' ')).dt.strftime(timeFmt)
-    df['Current End'] = pd.to_datetime(
-            df['Current End'].str.strip(' ')).dt.strftime(timeFmt)
+#    df['Current Start'] = pd.to_datetime(
+#            df['Current Start'].str.strip(' ')).dt.strftime(timeFmt)
+#    df['Current End'] = pd.to_datetime(
+#            df['Current End'].str.strip(' ')).dt.strftime(timeFmt)
 
+    df = df[df['enabled'] == 'Enabled']
+
+    df['Current Start'] = pd.to_datetime(df['Current Start'].str.strip(' '))
+    df['Current End'] = pd.to_datetime(df['Current End'].str.strip(' '))
+
+    df = remove_short_schedules(df)
+
+    df['Current Start'] = df['Current Start'].dt.strftime(timeFmt)
+    df['Current End'] = df['Current End'].dt.strftime(timeFmt)
+
+    return df
+
+
+def remove_short_schedules(df, timeDiff=1800):
+    """ if a schedule in siemens is less than timeDiff seconds, then remove it
+    from the report before it is processed """
+
+    df['difftime'] = df['Current End'] - df['Current Start']
+    df['difftime'] = df['difftime'].apply(pd.Timedelta.total_seconds).abs()
+
+    df = df[df['difftime'] > timeDiff]
+
+    df = df.drop('difftime', axis=1)
     return df
 
 
@@ -309,6 +333,28 @@ def adjust_Kalidah_start(kalidah, deltaT='-1h'):
     df.loc[df['New Start'].dt.hour > 0, 'New Start'] += pd.Timedelta(deltaT)
 
     return df
+
+
+def load_exceptions(kalidah, filename):
+
+    exceptions = pd.read_excel(filename, index_col=0, parse_dates=True)
+
+    def strf(t):
+        return dt.time.strftime(t, timeFmt)
+
+    exceptions['New Start'] = exceptions['New Start'].apply(strf)
+    exceptions['New End'] = exceptions['New End'].apply(strf)
+##                               infer_datetime_format=False)
+#    return exceptions
+
+    exceptions['New Start'] = pd.to_datetime(exceptions['New Start']).apply(pd.Timestamp)
+    exceptions['New End'] = pd.to_datetime(exceptions['New End']).apply(pd.Timestamp)
+
+    exceptions = adjust_Kalidah_start(exceptions)
+
+    combined = pd.concat([kalidah, exceptions], axis=0, sort=False).sort_index()
+
+    return combined
 
 
 def merge_kalidah_inventory(kalidah, inventory):
@@ -579,7 +625,7 @@ def move_siemens_report(reportPath):
 # =============================================================================
 
 
-def generate_report(moveSiemens=False):
+def generate_report(moveSiemens=False, exception_file=None):
     # Grab siemens report
     siemensPath = grab_siemens_report()
     siemens = parse_siemens_schedule(siemensPath)
@@ -595,15 +641,15 @@ def generate_report(moveSiemens=False):
     html = get_web_report(startDate=startDate,
                           endDate=endDate)
 
-    # parse Kalidah
     kalidah = parse_kalidah(html)
     kalidah = adjust_Kalidah_start(kalidah)
 
+    if exception_file:
+        kalidah = load_exceptions(kalidah, exception_file)
+
     kalidah['New Start'] = kalidah['New Start'].dt.strftime(timeFmt)
     kalidah['New End'] = kalidah['New End'].dt.strftime(timeFmt)
-
-#    return kalidah
-
+#
 #    siemens['Current Start'] = siemens['Current Start'].dt.strftime(timeFmt)
 #    siemens['Current End'] = siemens['Current End'].dt.strftime(timeFmt)
 
@@ -631,5 +677,6 @@ def generate_report(moveSiemens=False):
 
 
 if __name__ == "__main__":
-    A = generate_report(moveSiemens=True)
+    A = generate_report(moveSiemens=False, exception_file='../exceptions/vet2018.xlsx')
+#    B = remove_short_schedules(A)
     pass
